@@ -184,7 +184,7 @@
             try {
                 // Step 1: POST the job. Image input is sent as a FileData object
                 // with the base64 data URI in the "url" field.
-                const postResponse = await fetch(`${SPACE_URL}/call/${API_NAME}`, {
+                const postResponse = await fetch(`${SPACE_URL}/gradio_api/call/${API_NAME}`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
@@ -208,7 +208,7 @@
 
                 // Step 2: GET the result via server-sent events using the event_id.
                 const result = await new Promise((resolve, reject) => {
-                    const es = new EventSource(`${SPACE_URL}/call/${API_NAME}/${event_id}`);
+                    const es = new EventSource(`${SPACE_URL}/gradio_api/call/${API_NAME}/${event_id}`);
 
                     es.addEventListener("complete", (e) => {
                         es.close();
