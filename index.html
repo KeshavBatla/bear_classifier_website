@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Wild Bear Classifier</title>
     <style>
-        /* CSS: This handles all the modern styling, colors, and layout */
         :root {
             --primary: #3b82f6;
             --primary-hover: #2563eb;
@@ -40,7 +39,6 @@
         h1 { margin-top: 0; font-size: 1.8rem; }
         p { color: var(--text-muted); margin-bottom: 30px; }
 
-        /* The Image Upload Area */
         .upload-area {
             border: 2px dashed #cbd5e1;
             border-radius: 12px;
@@ -49,14 +47,14 @@
             transition: all 0.3s ease;
             position: relative;
         }
-        
+
         .upload-area:hover {
             border-color: var(--primary);
             background-color: #eff6ff;
         }
 
         #file-input { display: none; }
-        
+
         #image-preview {
             max-width: 100%;
             max-height: 250px;
@@ -65,7 +63,6 @@
             margin: 0 auto;
         }
 
-        /* Buttons and Results */
         .btn {
             background-color: var(--primary);
             color: white;
@@ -89,6 +86,7 @@
             background-color: #f8fafc;
             border-radius: 8px;
             display: none;
+            text-align: left;
         }
 
         .result-item {
@@ -114,6 +112,12 @@
             width: 0%;
             transition: width 0.5s ease-out;
         }
+
+        #error-msg {
+            color: #dc2626;
+            font-size: 0.9rem;
+            margin-top: 10px;
+        }
     </style>
 </head>
 <body>
@@ -130,23 +134,23 @@
 
         <button id="analyze-btn" class="btn" disabled>Analyze Image</button>
 
-        <div id="result-box">
-            </div>
+        <div id="result-box"></div>
+        <div id="error-msg"></div>
     </div>
 
     <script type="module">
-        // Import the official Gradio Client
-        import { client } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
+        // Correct import: named export is "Client", not "client"
+        import { Client } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
 
         const fileInput = document.getElementById('file-input');
         const imagePreview = document.getElementById('image-preview');
         const uploadText = document.getElementById('upload-text');
         const analyzeBtn = document.getElementById('analyze-btn');
         const resultBox = document.getElementById('result-box');
+        const errorMsg = document.getElementById('error-msg');
 
         let selectedFile = null;
 
-        // 1. Handle the image selection
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
             if (file) {
@@ -158,46 +162,50 @@
                     uploadText.style.display = 'none';
                     analyzeBtn.disabled = false;
                     resultBox.style.display = 'none';
+                    errorMsg.textContent = '';
                 };
                 reader.readAsDataURL(file);
             }
         });
 
-        // 2. Send the image to your Hugging Face Space
         analyzeBtn.addEventListener('click', async () => {
             if (!selectedFile) return;
 
-            analyzeBtn.textContent = 'Analyzing...';
+            analyzeBtn.textContent = 'Analyzing... (Space may take ~20-30s to wake up)';
             analyzeBtn.disabled = true;
+            errorMsg.textContent = '';
 
             try {
-                // Connect to your specific Space
-                const app = await client("keshavbatla/bear_types");
-                
-                // Send the image to the predict function
-                const result = await app.predict("/predict", [selectedFile]);
-                
-                // The API returns a dictionary of labels and probabilities
-                const predictions = result.data[0].confidences;
+                // Connect to your Space
+                const client = await Client.connect("keshavbatla/bear_types");
+
+                // Matches the exact endpoint + param name from your "Use via API" panel:
+                // client.predict("/classify_image", { img: exampleImage })
+                const result = await client.predict("/classify_image", {
+                    img: selectedFile,
+                });
+
+                // result.data[0] is expected to be a Gradio Label output:
+                // { label: "top_class", confidences: [{ label, confidence }, ...] }
+                const output = result.data[0];
+                const predictions = output.confidences ? output.confidences : [output];
                 displayResults(predictions);
 
             } catch (error) {
                 console.error("Error connecting to model:", error);
-                resultBox.innerHTML = "<p style='color: red;'>Error analyzing image. Please try again.</p>";
-                resultBox.style.display = 'block';
+                errorMsg.textContent = "Error analyzing image: " + error.message + " (check browser console for details)";
             } finally {
                 analyzeBtn.textContent = 'Analyze Image';
                 analyzeBtn.disabled = false;
             }
         });
 
-        // 3. Format and display the results
         function displayResults(predictions) {
             resultBox.innerHTML = '<h3>Results:</h3>';
-            
+
             predictions.forEach(pred => {
                 const percentage = (pred.confidence * 100).toFixed(1);
-                
+
                 const itemHtml = `
                     <div style="margin-bottom: 15px;">
                         <div class="result-item">
@@ -211,7 +219,7 @@
                 `;
                 resultBox.innerHTML += itemHtml;
             });
-            
+
             resultBox.style.display = 'block';
         }
     </script>
