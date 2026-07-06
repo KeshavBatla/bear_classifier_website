@@ -138,9 +138,12 @@
         <div id="error-msg"></div>
     </div>
 
-    <script type="module">
-        // Correct import: named export is "Client", not "client"
-        import { Client } from "https://cdn.jsdelivr.net/npm/@gradio/client/dist/index.min.js";
+    <script>
+        // Your Space's direct URL (converted from keshavbatla/bear_types).
+        // If this doesn't match, open https://huggingface.co/spaces/keshavbatla/bear_types
+        // and copy the exact hostname from the address bar when the Space app itself loads.
+        const SPACE_URL = "https://keshavbatla-bear-types.hf.space";
+        const API_NAME = "classify_image"; // no leading slash here
 
         const fileInput = document.getElementById('file-input');
         const imagePreview = document.getElementById('image-preview');
@@ -150,6 +153,7 @@
         const errorMsg = document.getElementById('error-msg');
 
         let selectedFile = null;
+        let base64Image = null;
 
         fileInput.addEventListener('change', (event) => {
             const file = event.target.files[0];
@@ -157,7 +161,8 @@
                 selectedFile = file;
                 const reader = new FileReader();
                 reader.onload = (e) => {
-                    imagePreview.src = e.target.result;
+                    base64Image = e.target.result; // data:image/...;base64,....
+                    imagePreview.src = base64Image;
                     imagePreview.style.display = 'block';
                     uploadText.style.display = 'none';
                     analyzeBtn.disabled = false;
@@ -169,25 +174,57 @@
         });
 
         analyzeBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
+            if (!selectedFile || !base64Image) return;
 
             analyzeBtn.textContent = 'Analyzing... (Space may take ~20-30s to wake up)';
             analyzeBtn.disabled = true;
             errorMsg.textContent = '';
+            resultBox.style.display = 'none';
 
             try {
-                // Connect to your Space
-                const client = await Client.connect("keshavbatla/bear_types");
-
-                // Matches the exact endpoint + param name from your "Use via API" panel:
-                // client.predict("/classify_image", { img: exampleImage })
-                const result = await client.predict("/classify_image", {
-                    img: selectedFile,
+                // Step 1: POST the job. Image input is sent as a FileData object
+                // with the base64 data URI in the "url" field.
+                const postResponse = await fetch(`${SPACE_URL}/call/${API_NAME}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        data: [
+                            {
+                                path: null,
+                                url: base64Image,
+                                orig_name: selectedFile.name,
+                                mime_type: selectedFile.type,
+                                meta: { "_type": "gradio.FileData" }
+                            }
+                        ]
+                    })
                 });
 
-                // result.data[0] is expected to be a Gradio Label output:
+                if (!postResponse.ok) {
+                    throw new Error(`POST failed with status ${postResponse.status}`);
+                }
+
+                const { event_id } = await postResponse.json();
+
+                // Step 2: GET the result via server-sent events using the event_id.
+                const result = await new Promise((resolve, reject) => {
+                    const es = new EventSource(`${SPACE_URL}/call/${API_NAME}/${event_id}`);
+
+                    es.addEventListener("complete", (e) => {
+                        es.close();
+                        resolve(JSON.parse(e.data));
+                    });
+
+                    es.addEventListener("error", (e) => {
+                        es.close();
+                        reject(new Error("Stream error while waiting for prediction."));
+                    });
+                });
+
+                // result is the "data" array from your function's return values.
+                // Expecting result[0] to be a Gradio Label output:
                 // { label: "top_class", confidences: [{ label, confidence }, ...] }
-                const output = result.data[0];
+                const output = result[0];
                 const predictions = output.confidences ? output.confidences : [output];
                 displayResults(predictions);
 
